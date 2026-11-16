@@ -259,7 +259,21 @@ class UserMutation {
     @GraphQLDescription("Redeems a registration code with a username and a self-chosen password.")
     fun redeemRegistrationCode(input: RedeemRegistrationCodeInput): CompletableFuture<RedeemRegistrationCodePayload> {
         val redeemedUserId =
-            UserCodeService.redeemRegistrationCode(input.code, input.username, input.password)
+            if (input.code.isBlank() && serverConfig.allowSelfRegistration.value) {
+                val userExists =
+                    transaction {
+                        UserAccountTable
+                            .selectAll()
+                            .where { UserAccountTable.username.lowerCase() eq input.username.trim().lowercase() }
+                            .isNotEmpty()
+                    }
+                if (userExists) {
+                    throw IllegalArgumentException("Username already exists")
+                }
+                UserCodeService.createUser(input.username.trim(), input.password, null)
+            } else {
+                UserCodeService.redeemRegistrationCode(input.code, input.username, input.password)
+            }
 
         return future {
             val jwt = Jwt.generateJwt(redeemedUserId)

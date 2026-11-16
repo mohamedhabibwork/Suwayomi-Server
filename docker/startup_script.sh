@@ -85,6 +85,7 @@ sed -i -r "s/server.authPassword = \"(.*?)\"( #)?/server.authPassword = \"${AUTH
 sed -i -r "s/server.jwtAudience = \"(.*?)\"( #)?/server.jwtAudience = \"${JWT_AUDIENCE:-\1}\" #/" /home/suwayomi/.local/share/Tachidesk/server.conf
 sed -i -r "s/server.jwtTokenExpiry = \"(.*?)\"( #)?/server.jwtTokenExpiry = \"${JWT_TOKEN_EXPIRY:-\1}\" #/" /home/suwayomi/.local/share/Tachidesk/server.conf
 sed -i -r "s/server.jwtRefreshExpiry = \"(.*?)\"( #)?/server.jwtRefreshExpiry = \"${JWT_REFRESH_EXPIRY:-\1}\" #/" /home/suwayomi/.local/share/Tachidesk/server.conf
+sed -i -r "s/server.allowSelfRegistration = ([0-9]+|[a-zA-Z]+)( #)?/server.allowSelfRegistration = ${ALLOW_SELF_REGISTRATION:-\1} #/" /home/suwayomi/.local/share/Tachidesk/server.conf
 
 sed -i -r "s/server.basicAuthEnabled = ([0-9]+|[a-zA-Z]+)( #)?/server.basicAuthEnabled = ${BASIC_AUTH_ENABLED:-\1} #/" /home/suwayomi/.local/share/Tachidesk/server.conf
 sed -i -r "s/server.basicAuthUsername = \"(.*?)\"( #)?/server.basicAuthUsername = \"${BASIC_AUTH_USERNAME:-\1}\" #/" /home/suwayomi/.local/share/Tachidesk/server.conf

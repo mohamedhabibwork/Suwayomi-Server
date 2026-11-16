@@ -1158,6 +1158,14 @@ class ServerConfig(
         minLength = 1
     )
 
+    val allowSelfRegistration: MutableStateFlow<Boolean> by BooleanSetting(
+        protoNumber = 101,
+        group = SettingGroup.AUTH,
+        privacySafe = true,
+        defaultValue = false,
+        description = "Allow users to create their own per-user account without a registration code when authMode is UI_LOGIN",
+    )
+
     /** ****************************************************************** **/
     /**                                                                    **/
     /**                          Renamed settings                          **/
