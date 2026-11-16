@@ -12,7 +12,7 @@ services:
       - AUTH_USERNAME=${AUTH_USERNAME:-admin}
       - AUTH_PASSWORD=${AUTH_PASSWORD:-Manga@FirstCall2026!}
       - ALLOW_SELF_REGISTRATION=${ALLOW_SELF_REGISTRATION:-true}
-      - EXTENSION_STORES=${EXTENSION_STORES:-["https://github.com/keiyoushi/extensions/raw/repo/index.pb"]}
+      - EXTENSION_STORES=${EXTENSION_STORES:-["https://github.com/keiyoushi/extensions/raw/repo/index.pb","https://raw.githubusercontent.com/yuzono/manga-repo/repo/index.min.json"]}
       - WEB_UI_ENABLED=${WEB_UI_ENABLED:-true}
       - WEB_UI_FLAVOR=${WEB_UI_FLAVOR:-WebUI}
       - WEB_UI_CHANNEL=${WEB_UI_CHANNEL:-stable}

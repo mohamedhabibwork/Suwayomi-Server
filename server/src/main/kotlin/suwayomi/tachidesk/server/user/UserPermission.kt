@@ -27,6 +27,7 @@ enum class UserPermission {
                 INSTALL_EXTERNAL_EXTENSIONS,
                 UNINSTALL_EXTENSIONS,
                 DOWNLOAD_CHAPTERS,
+                MANAGE_EXTENSION_STORES,
                 // ACCESS_NSFW,
             )
     }

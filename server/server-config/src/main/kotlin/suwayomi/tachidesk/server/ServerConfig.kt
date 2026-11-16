@@ -1115,7 +1115,11 @@ class ServerConfig(
         protoNumber = 97,
         group = SettingGroup.EXTENSION,
         privacySafe = false,
-        defaultValue = emptyList(),
+        defaultValue =
+            listOf(
+                "https://github.com/keiyoushi/extensions/raw/repo/index.pb",
+                "https://raw.githubusercontent.com/yuzono/manga-repo/repo/index.min.json",
+            ),
         requiresRestart = true,
         itemValidator = { url ->
             if (url.isNotEmpty()) {
