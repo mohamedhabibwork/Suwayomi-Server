@@ -25,6 +25,7 @@ import suwayomi.tachidesk.graphql.server.getAttribute
 import suwayomi.tachidesk.manga.impl.util.lang.isNotEmpty
 import suwayomi.tachidesk.server.JavalinSetup.Attribute
 import suwayomi.tachidesk.server.JavalinSetup.future
+import suwayomi.tachidesk.server.serverConfig
 import suwayomi.tachidesk.server.user.SessionVersion
 import suwayomi.tachidesk.server.user.UserCodeService
 import suwayomi.tachidesk.server.user.UserPermission
