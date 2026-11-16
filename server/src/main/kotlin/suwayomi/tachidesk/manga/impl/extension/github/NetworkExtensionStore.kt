@@ -106,6 +106,65 @@ data class NetworkExtensionStore(
         )
 }
 
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class NetworkAnimeExtensionStore(
+    @ProtoNumber(1) val name: String,
+    @ProtoNumber(2) val badgeLabel: String,
+    @ProtoNumber(3) val signingKey: String,
+    @ProtoNumber(4) val contact: NetworkExtensionStore.Contact,
+    @ProtoNumber(101) val extensionList: ExtensionList? = null,
+    @ProtoNumber(102) val extensionListUrl: String? = null,
+) : BaseNetworkExtensionStore {
+    @Serializable
+    data class ExtensionList(
+        @ProtoNumber(1) val extensions: List<Extension>,
+    ) {
+        fun toNetworkExtensionList(): NetworkExtensionStore.ExtensionList =
+            NetworkExtensionStore.ExtensionList(
+                extensions =
+                    extensions.map { ext ->
+                        NetworkExtensionStore.Extension(
+                            name = ext.name,
+                            packageName = ext.packageName,
+                            resources = ext.resources,
+                            extensionLib = ext.extensionLib,
+                            versionCode = ext.versionCode,
+                            versionName = ext.versionName,
+                            contentWarning = ext.contentWarning,
+                            sources = ext.sources,
+                            animeSources = ext.sources,
+                        )
+                    },
+            )
+    }
+
+    @Serializable
+    data class Extension(
+        @ProtoNumber(1) val name: String,
+        @ProtoNumber(2) val packageName: String,
+        @ProtoNumber(3) val resources: NetworkExtensionStore.Resources,
+        @ProtoNumber(4) val extensionLib: String = "1.4",
+        @ProtoNumber(5) val versionCode: Long = 1,
+        @ProtoNumber(6) val versionName: String = "1.0",
+        @ProtoNumber(7) val contentWarning: NetworkExtensionStore.ContentWarning = NetworkExtensionStore.ContentWarning.SAFE,
+        @ProtoNumber(8) val isTorrent: Int = 0,
+        @ProtoNumber(9) val sources: List<NetworkExtensionStore.Source> = emptyList(),
+    )
+
+    fun toNetworkExtensionStore(): NetworkExtensionStore =
+        NetworkExtensionStore(
+            name = if (name.contains("Anime", ignoreCase = true)) name else "$name Anime",
+            badgeLabel = badgeLabel,
+            signingKey = signingKey,
+            contact = contact,
+            extensionList = extensionList?.toNetworkExtensionList(),
+            extensionListUrl = extensionListUrl,
+        )
+
+    override fun toExtensionStore(indexUrl: String): ExtensionStore = toNetworkExtensionStore().toExtensionStore(indexUrl)
+}
+
 fun NetworkExtensionStore.ExtensionList.toExtensionInfos(store: ExtensionStore): List<ExtensionInfo> =
     extensions.map { extension ->
         val rawSources = extension.sources.ifEmpty { extension.animeSources }

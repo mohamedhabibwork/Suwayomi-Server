@@ -27,6 +27,7 @@ import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.jetbrains.exposed.v1.jdbc.update
 import suwayomi.tachidesk.manga.impl.extension.github.BaseNetworkExtensionStore
 import suwayomi.tachidesk.manga.impl.extension.github.NetworkAidokuExtensionStore
+import suwayomi.tachidesk.manga.impl.extension.github.NetworkAnimeExtensionStore
 import suwayomi.tachidesk.manga.impl.extension.github.NetworkExtensionStore
 import suwayomi.tachidesk.manga.impl.extension.github.NetworkLegacyExtension
 import suwayomi.tachidesk.manga.impl.extension.github.NetworkLegacyExtensionRepo
@@ -145,7 +146,12 @@ object ExtensionStoreService {
                         }
 
                         else -> {
-                            protoBuf.decodeFromByteArray<NetworkExtensionStore>(source.readByteArray())
+                            val bytes = source.readByteArray()
+                            try {
+                                protoBuf.decodeFromByteArray<NetworkExtensionStore>(bytes)
+                            } catch (_: Exception) {
+                                protoBuf.decodeFromByteArray<NetworkAnimeExtensionStore>(bytes).toNetworkExtensionStore()
+                            }
                         }
                     }
 
@@ -340,11 +346,16 @@ object ExtensionStoreService {
                             }
                         }
 
-                        else ->
-                            protoBuf
-                                .decodeFromByteArray<NetworkExtensionStore>(source.readByteArray())
-                                .extensionList!!
-                                .toExtensionInfos(store)
+                        else -> {
+                            val bytes = source.readByteArray()
+                            val storeObj =
+                                try {
+                                    protoBuf.decodeFromByteArray<NetworkExtensionStore>(bytes)
+                                } catch (_: Exception) {
+                                    protoBuf.decodeFromByteArray<NetworkAnimeExtensionStore>(bytes).toNetworkExtensionStore()
+                                }
+                            storeObj.extensionList!!.toExtensionInfos(store)
+                        }
                     }
                 }
             } else {
