@@ -10,13 +10,17 @@ import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import suwayomi.tachidesk.graphql.server.getAttribute
 import suwayomi.tachidesk.graphql.types.ExtensionNodeList
 import suwayomi.tachidesk.graphql.types.ExtensionNodeList.Companion.toNodeList
 import suwayomi.tachidesk.graphql.types.ExtensionStoreType
 import suwayomi.tachidesk.graphql.types.ExtensionType
 import suwayomi.tachidesk.manga.model.table.ExtensionStoreTable
 import suwayomi.tachidesk.manga.model.table.ExtensionTable
+import suwayomi.tachidesk.manga.model.table.getWithUserData
+import suwayomi.tachidesk.server.JavalinSetup
 import suwayomi.tachidesk.server.JavalinSetup.future
+import suwayomi.tachidesk.server.user.requireUser
 
 class ExtensionStoreDataLoader : KotlinDataLoader<String, ExtensionStoreType> {
     override val dataLoaderName = "ExtensionStoreDataLoader"
@@ -44,10 +48,12 @@ class ExtensionsForExtensionStore : KotlinDataLoader<String, ExtensionNodeList> 
     override fun getDataLoader(graphQLContext: GraphQLContext): DataLoader<String, ExtensionNodeList> =
         DataLoaderFactory.newDataLoader<String, ExtensionNodeList> { ids ->
             future {
+                val userId = graphQLContext.getAttribute(JavalinSetup.Attribute.TachideskUser).requireUser()
                 transaction {
                     addLogger(Slf4jSqlDebugLogger)
                     val extensionByIndexUrl =
                         ExtensionTable
+                            .getWithUserData(userId)
                             .selectAll()
                             .where { ExtensionTable.storeIndexUrl inList ids }
                             .map { ExtensionType(it) }

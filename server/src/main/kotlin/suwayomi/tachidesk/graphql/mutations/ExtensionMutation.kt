@@ -5,11 +5,14 @@ package suwayomi.tachidesk.graphql.mutations
 import com.expediagroup.graphql.generator.annotations.GraphQLIgnore
 import eu.kanade.tachiyomi.source.local.LocalSource
 import io.javalin.http.UploadedFile
+import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.neq
+import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import org.jetbrains.exposed.v1.jdbc.upsert
 import suwayomi.tachidesk.graphql.directives.RequireAuth
 import suwayomi.tachidesk.graphql.directives.RequirePermissions
 import suwayomi.tachidesk.graphql.types.ExtensionStoreType
@@ -18,6 +21,8 @@ import suwayomi.tachidesk.manga.impl.extension.Extension
 import suwayomi.tachidesk.manga.impl.extension.ExtensionsList
 import suwayomi.tachidesk.manga.model.table.ExtensionStoreTable
 import suwayomi.tachidesk.manga.model.table.ExtensionTable
+import suwayomi.tachidesk.manga.model.table.ExtensionUserTable
+import suwayomi.tachidesk.manga.model.table.getWithUserData
 import suwayomi.tachidesk.server.JavalinSetup.future
 import suwayomi.tachidesk.server.user.ForbiddenException
 import suwayomi.tachidesk.server.user.UserPermission
@@ -54,32 +59,45 @@ class ExtensionMutation {
     )
 
     private suspend fun updateExtensions(
+        userId: Int,
         ids: List<String>,
         patch: UpdateExtensionPatch,
     ) {
-        val extensions =
+        val globalExtensions =
             transaction {
                 ExtensionTable
                     .selectAll()
                     .where { ExtensionTable.pkgName inList ids }
-                    .map { ExtensionType(it) }
+                    .toList()
             }
 
         if (patch.update == true) {
-            extensions.filter { it.hasUpdate }.forEach {
-                Extension.updateExtension(it.pkgName)
+            globalExtensions.filter { it[ExtensionTable.hasUpdate] }.forEach {
+                Extension.updateExtension(it[ExtensionTable.pkgName])
             }
         }
 
         if (patch.install == true) {
-            extensions.filterNot { it.isInstalled }.forEach {
-                Extension.installExtension(it.pkgName)
+            globalExtensions.forEach { extRow ->
+                val pkgName = extRow[ExtensionTable.pkgName]
+                if (!extRow[ExtensionTable.isInstalled]) {
+                    Extension.installExtension(pkgName)
+                }
+                transaction {
+                    ExtensionUserTable.upsert(keys = arrayOf(ExtensionUserTable.user, ExtensionUserTable.pkgName)) {
+                        it[user] = userId
+                        it[this.pkgName] = pkgName
+                        it[isInstalled] = true
+                    }
+                }
             }
         }
 
         if (patch.uninstall == true) {
-            extensions.filter { it.isInstalled }.forEach {
-                Extension.uninstallExtension(it.pkgName)
+            transaction {
+                ExtensionUserTable.deleteWhere {
+                    (ExtensionUserTable.user eq userId) and (ExtensionUserTable.pkgName inList ids)
+                }
             }
         }
     }
@@ -100,6 +118,8 @@ class ExtensionMutation {
     @RequireAuth
     fun updateExtension(
         @GraphQLIgnore
+        userId: Int,
+        @GraphQLIgnore
         permissions: List<UserPermission>,
         input: UpdateExtensionInput,
     ): CompletableFuture<UpdateExtensionPayload?> {
@@ -108,11 +128,12 @@ class ExtensionMutation {
         checkUpdatePermissions(permissions, patch)
 
         return future {
-            updateExtensions(listOf(id), patch)
+            updateExtensions(userId, listOf(id), patch)
 
             val extension =
                 transaction {
                     ExtensionTable
+                        .getWithUserData(userId)
                         .selectAll()
                         .where { ExtensionTable.pkgName eq id }
                         .firstOrNull()
@@ -129,6 +150,8 @@ class ExtensionMutation {
     @RequireAuth
     fun updateExtensions(
         @GraphQLIgnore
+        userId: Int,
+        @GraphQLIgnore
         permissions: List<UserPermission>,
         input: UpdateExtensionsInput,
     ): CompletableFuture<UpdateExtensionsPayload?> {
@@ -137,11 +160,12 @@ class ExtensionMutation {
         checkUpdatePermissions(permissions, patch)
 
         return future {
-            updateExtensions(ids, patch)
+            updateExtensions(userId, ids, patch)
 
             val extensions =
                 transaction {
                     ExtensionTable
+                        .getWithUserData(userId)
                         .selectAll()
                         .where { ExtensionTable.pkgName inList ids }
                         .map { ExtensionType(it) }
@@ -167,6 +191,8 @@ class ExtensionMutation {
     @RequireAuth
     fun fetchExtensions(
         @GraphQLIgnore
+        userId: Int,
+        @GraphQLIgnore
         permissions: List<UserPermission>,
         input: FetchExtensionsInput,
     ): CompletableFuture<FetchExtensionsPayload?> {
@@ -179,6 +205,7 @@ class ExtensionMutation {
                 transaction {
                     val query =
                         ExtensionTable
+                            .getWithUserData(userId)
                             .selectAll()
                             .where { ExtensionTable.name neq LocalSource.EXTENSION_NAME }
 
@@ -217,14 +244,29 @@ class ExtensionMutation {
 
     @RequireAuth
     @RequirePermissions(UserPermission.INSTALL_EXTERNAL_EXTENSIONS)
-    fun installExternalExtension(input: InstallExternalExtensionInput): CompletableFuture<InstallExternalExtensionPayload?> {
+    fun installExternalExtension(
+        @GraphQLIgnore
+        userId: Int,
+        input: InstallExternalExtensionInput,
+    ): CompletableFuture<InstallExternalExtensionPayload?> {
         val (clientMutationId, extensionFile) = input
 
         return future {
             val pkgName = Extension.installExternalExtension(extensionFile.content(), extensionFile.filename())
 
             val dbExtension =
-                transaction { ExtensionTable.selectAll().where { ExtensionTable.pkgName eq pkgName }.first() }
+                transaction {
+                    ExtensionUserTable.upsert(keys = arrayOf(ExtensionUserTable.user, ExtensionUserTable.pkgName)) {
+                        it[user] = userId
+                        it[this.pkgName] = pkgName
+                        it[isInstalled] = true
+                    }
+                    ExtensionTable
+                        .getWithUserData(userId)
+                        .selectAll()
+                        .where { ExtensionTable.pkgName eq pkgName }
+                        .first()
+                }
 
             InstallExternalExtensionPayload(
                 clientMutationId,

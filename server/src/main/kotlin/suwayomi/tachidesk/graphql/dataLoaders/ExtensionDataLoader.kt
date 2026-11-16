@@ -13,13 +13,18 @@ import org.dataloader.DataLoader
 import org.dataloader.DataLoaderFactory
 import org.jetbrains.exposed.v1.core.Slf4jSqlDebugLogger
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.innerJoin
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import suwayomi.tachidesk.graphql.server.getAttribute
 import suwayomi.tachidesk.graphql.server.primitives.inIds
 import suwayomi.tachidesk.graphql.types.ExtensionType
 import suwayomi.tachidesk.manga.model.table.ExtensionTable
 import suwayomi.tachidesk.manga.model.table.SourceTable
+import suwayomi.tachidesk.manga.model.table.getWithUserData
+import suwayomi.tachidesk.server.JavalinSetup
 import suwayomi.tachidesk.server.JavalinSetup.future
+import suwayomi.tachidesk.server.user.requireUser
 
 class ExtensionDataLoader : KotlinDataLoader<String, ExtensionType> {
     override val dataLoaderName = "ExtensionDataLoader"
@@ -27,10 +32,12 @@ class ExtensionDataLoader : KotlinDataLoader<String, ExtensionType> {
     override fun getDataLoader(graphQLContext: GraphQLContext): DataLoader<String, ExtensionType> =
         DataLoaderFactory.newDataLoader { ids ->
             future {
+                val userId = graphQLContext.getAttribute(JavalinSetup.Attribute.TachideskUser).requireUser()
                 transaction {
                     addLogger(Slf4jSqlDebugLogger)
                     val extensions =
                         ExtensionTable
+                            .getWithUserData(userId)
                             .selectAll()
                             .where { ExtensionTable.pkgName inList ids }
                             .map { ExtensionType(it) }
@@ -47,11 +54,17 @@ class ExtensionForSourceDataLoader : KotlinDataLoader<Long, ExtensionType> {
     override fun getDataLoader(graphQLContext: GraphQLContext): DataLoader<Long, ExtensionType> =
         DataLoaderFactory.newDataLoader { ids ->
             future {
+                val userId = graphQLContext.getAttribute(JavalinSetup.Attribute.TachideskUser).requireUser()
                 transaction {
                     addLogger(Slf4jSqlDebugLogger)
                     val extensions =
                         ExtensionTable
-                            .innerJoin(SourceTable)
+                            .getWithUserData(userId)
+                            .innerJoin(
+                                SourceTable,
+                                onColumn = { ExtensionTable.id },
+                                otherColumn = { SourceTable.extension },
+                            )
                             .selectAll()
                             .where { SourceTable.id inIds ids }
                             .toList()

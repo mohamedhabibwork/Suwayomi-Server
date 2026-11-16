@@ -20,6 +20,7 @@ import suwayomi.tachidesk.graphql.server.primitives.PageInfo
 import suwayomi.tachidesk.manga.impl.extension.Extension
 import suwayomi.tachidesk.manga.model.dataclass.ContentWarning
 import suwayomi.tachidesk.manga.model.table.ExtensionTable
+import suwayomi.tachidesk.manga.model.table.ExtensionUserTable
 import java.util.concurrent.CompletableFuture
 
 class ExtensionType(
@@ -65,9 +66,9 @@ class ExtensionType(
         lang = row[ExtensionTable.lang],
         isNsfw = row[ExtensionTable.contentWarning] >= ContentWarning.MIXED.ordinal,
         contentWarning = ContentWarning.valueOf(row[ExtensionTable.contentWarning]),
-        isInstalled = row[ExtensionTable.isInstalled],
-        hasUpdate = row[ExtensionTable.hasUpdate],
-        isObsolete = row[ExtensionTable.isObsolete],
+        isInstalled = (row.getOrNull(ExtensionUserTable.isInstalled) ?: false) && row[ExtensionTable.isInstalled],
+        hasUpdate = ((row.getOrNull(ExtensionUserTable.isInstalled) ?: false) && row[ExtensionTable.isInstalled]) && row[ExtensionTable.hasUpdate],
+        isObsolete = ((row.getOrNull(ExtensionUserTable.isInstalled) ?: false) && row[ExtensionTable.isInstalled]) && row[ExtensionTable.isObsolete],
     )
 
     fun source(dataFetchingEnvironment: DataFetchingEnvironment): CompletableFuture<SourceNodeList> =

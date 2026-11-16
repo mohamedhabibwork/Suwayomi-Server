@@ -33,6 +33,7 @@ import suwayomi.tachidesk.graphql.queries.filter.andFilterWithCompare
 import suwayomi.tachidesk.graphql.queries.filter.andFilterWithCompareEnum
 import suwayomi.tachidesk.graphql.queries.filter.andFilterWithCompareString
 import suwayomi.tachidesk.graphql.queries.filter.applyOps
+import suwayomi.tachidesk.graphql.queries.filter.coalesceDefault
 import suwayomi.tachidesk.graphql.server.primitives.Cursor
 import suwayomi.tachidesk.graphql.server.primitives.Order
 import suwayomi.tachidesk.graphql.server.primitives.OrderBy
@@ -47,6 +48,8 @@ import suwayomi.tachidesk.graphql.types.ExtensionNodeList
 import suwayomi.tachidesk.graphql.types.ExtensionType
 import suwayomi.tachidesk.manga.model.dataclass.ContentWarning
 import suwayomi.tachidesk.manga.model.table.ExtensionTable
+import suwayomi.tachidesk.manga.model.table.ExtensionUserTable
+import suwayomi.tachidesk.manga.model.table.getWithUserData
 import suwayomi.tachidesk.server.user.UserPermission
 import java.util.concurrent.CompletableFuture
 
@@ -148,7 +151,7 @@ class ExtensionQuery {
                 ExtensionTable.contentWarning,
             )
             opAnd.eq(contentWarning?.ordinal, ExtensionTable.contentWarning)
-            opAnd.eq(isInstalled, ExtensionTable.isInstalled)
+            opAnd.eq(isInstalled, coalesceDefault(ExtensionUserTable.isInstalled, false))
             opAnd.eq(hasUpdate, ExtensionTable.hasUpdate)
             opAnd.eq(isObsolete, ExtensionTable.isObsolete)
 
@@ -197,7 +200,7 @@ class ExtensionQuery {
                 andFilterWithCompare(ExtensionTable.versionCode, versionCodeLong),
                 andFilterWithCompareString(ExtensionTable.lang, lang),
                 andFilterWithCompareEnum(ExtensionTable.contentWarning, contentWarning),
-                andFilterWithCompare(ExtensionTable.isInstalled, isInstalled),
+                andFilterWithCompare(coalesceDefault(ExtensionUserTable.isInstalled, false), isInstalled),
                 andFilterWithCompare(ExtensionTable.hasUpdate, hasUpdate),
                 andFilterWithCompare(ExtensionTable.isObsolete, isObsolete),
             )
@@ -205,6 +208,8 @@ class ExtensionQuery {
 
     @RequireAuth
     fun extensions(
+        @GraphQLIgnore
+        userId: Int,
         @GraphQLIgnore
         permissions: List<UserPermission>,
         dataFetchingEnvironment: DataFetchingEnvironment,
@@ -229,7 +234,7 @@ class ExtensionQuery {
     ): ExtensionNodeList {
         val queryResults =
             transaction {
-                val res = ExtensionTable.selectAll()
+                val res = ExtensionTable.getWithUserData(userId).selectAll()
 
                 res.adjustWhere { ExtensionTable.name neq LocalSource.EXTENSION_NAME }
 
