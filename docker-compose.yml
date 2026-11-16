@@ -1,0 +1,46 @@
+services:
+  suwayomi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    shm_size: 2gb
+    environment:
+      - TZ=${TZ:-Etc/UTC}
+      - BIND_IP=0.0.0.0
+      - BIND_PORT=4567
+      - AUTH_MODE=${AUTH_MODE:-ui_login}
+      - AUTH_USERNAME=${AUTH_USERNAME:-admin}
+      - AUTH_PASSWORD=${AUTH_PASSWORD:-Manga@FirstCall2026!}
+      - WEB_UI_ENABLED=${WEB_UI_ENABLED:-true}
+      - WEB_UI_FLAVOR=${WEB_UI_FLAVOR:-WebUI}
+      - WEB_UI_CHANNEL=${WEB_UI_CHANNEL:-stable}
+      - DOWNLOAD_AS_CBZ=${DOWNLOAD_AS_CBZ:-true}
+      - FLARESOLVERR_ENABLED=${FLARESOLVERR_ENABLED:-true}
+      - FLARESOLVERR_URL=${FLARESOLVERR_URL:-http://flaresolverr:8191}
+      - FLARESOLVERR_TIMEOUT=${FLARESOLVERR_TIMEOUT:-60}
+      - FLARESOLVERR_SESSION_TTL=${FLARESOLVERR_SESSION_TTL:-30}
+      - FLARESOLVERR_RESPONSE_AS_FALLBACK=${FLARESOLVERR_RESPONSE_AS_FALLBACK:-true}
+    volumes:
+      - suwayomi-data:/home/suwayomi/.local/share/Tachidesk
+    expose:
+      - "4567"
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+      - default
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    shm_size: 2gb
+    environment:
+      - TZ=${TZ:-Etc/UTC}
+      - LOG_LEVEL=info
+      - CAPTCHA_SOLVER=none
+    restart: unless-stopped
+
+volumes:
+  suwayomi-data:
+
+networks:
+  dokploy-network:
+    external: true
