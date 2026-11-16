@@ -9,6 +9,8 @@ package suwayomi.tachidesk.manga.impl.extension.github
 
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import suwayomi.tachidesk.manga.model.dataclass.ContentWarning
 import suwayomi.tachidesk.manga.model.dataclass.ExtensionInfo
 import suwayomi.tachidesk.manga.model.dataclass.ExtensionSource
@@ -38,41 +40,79 @@ data class NetworkLegacyExtension(
 fun NetworkLegacyExtension.toExtensionInfo(
     store: ExtensionStore,
     storeBaseUrl: String,
-): ExtensionInfo =
-    ExtensionInfo(
+): ExtensionInfo {
+    val isAnime = pkg.contains(".animeextension.") || name.startsWith("Aniyomi:", ignoreCase = true)
+    val cleanBaseName =
+        name
+            .removePrefix("Tachiyomi: ")
+            .removePrefix("Aniyomi: ")
+            .trim()
+    val displayName =
+        if (isAnime && !cleanBaseName.contains("(Video)", ignoreCase = true)) {
+            "$cleanBaseName (Video)"
+        } else {
+            cleanBaseName
+        }
+    val warning = if (nsfw == 1) ContentWarning.NSFW else ContentWarning.SAFE
+    val mappedSources =
+        if (sources.isNullOrEmpty()) {
+            listOf(
+                ExtensionSource(
+                    id = NetworkAidokuExtensionStore.deterministicSourceId(pkg, lang),
+                    name = displayName,
+                    lang = lang,
+                    homeUrl = "",
+                    message = null,
+                    contentWarning = warning,
+                ),
+            )
+        } else {
+            sources.map { source ->
+                val srcName =
+                    if (isAnime && !source.name.contains("(Video)", ignoreCase = true)) {
+                        "${source.name.trim()} (Video)"
+                    } else {
+                        source.name.trim()
+                    }
+                ExtensionSource(
+                    id = source.id,
+                    name = srcName,
+                    lang = source.lang,
+                    homeUrl = source.baseUrl,
+                    message = null,
+                    contentWarning = warning,
+                )
+            }
+        }
+    val webSourcesPayload =
+        if (isAnime) {
+            "web-sources:" +
+                Json.encodeToString(
+                    mappedSources.take(4).map { src ->
+                        NetworkExtensionStore.Source(
+                            id = src.id,
+                            name = src.name,
+                            language = src.lang,
+                            homeUrl = src.homeUrl,
+                        )
+                    },
+                )
+        } else {
+            null
+        }
+
+    return ExtensionInfo(
         storeIndexUrl = store.indexUrl,
-        name = name.substringAfter("Tachiyomi: "),
+        name = displayName,
         pkgName = pkg,
         apkUrl = "$storeBaseUrl/apk/$apk",
-        jarUrl = null,
+        jarUrl = webSourcesPayload,
         iconUrl = "$storeBaseUrl/icon/$pkg.png",
         extensionLib = version.substringBeforeLast('.'),
         versionCode = code,
         versionName = version,
         lang = lang,
-        contentWarning = if (nsfw == 1) ContentWarning.MIXED else ContentWarning.SAFE,
-        sources =
-            if (sources.isNullOrEmpty()) {
-                listOf(
-                    ExtensionSource(
-                        id = 0,
-                        name = name,
-                        lang = lang,
-                        homeUrl = "",
-                        message = null,
-                        contentWarning = if (nsfw == 1) ContentWarning.MIXED else ContentWarning.SAFE,
-                    ),
-                )
-            } else {
-                sources.map { source ->
-                    ExtensionSource(
-                        id = source.id,
-                        name = source.name,
-                        lang = source.lang,
-                        homeUrl = source.baseUrl,
-                        message = null,
-                        contentWarning = if (nsfw == 1) ContentWarning.MIXED else ContentWarning.SAFE,
-                    )
-                }
-            },
+        contentWarning = warning,
+        sources = mappedSources,
     )
+}

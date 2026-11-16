@@ -11,9 +11,11 @@ import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.SourceFactory
 import eu.kanade.tachiyomi.source.online.HttpSource
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import suwayomi.tachidesk.manga.impl.extension.github.NetworkExtensionStore
 import suwayomi.tachidesk.manga.impl.util.PackageTools.loadExtensionSources
 import suwayomi.tachidesk.manga.model.table.ExtensionTable
 import suwayomi.tachidesk.manga.model.table.SourceTable
@@ -46,10 +48,40 @@ object GetSource {
                 ExtensionTable.selectAll().where { ExtensionTable.id eq extensionId }.first()
             }
 
+        val className = extensionRecord[ExtensionTable.classFQName]
+        val jarUrl = extensionRecord[ExtensionTable.jarUrl]
+        val pkgName = extensionRecord[ExtensionTable.pkgName]
+        val webPayload =
+            when {
+                className.startsWith("web-sources:") -> className.removePrefix("web-sources:")
+                jarUrl?.startsWith("web-sources:") == true -> jarUrl.removePrefix("web-sources:")
+                else -> null
+            }
+
+        if (webPayload != null) {
+            val parsed =
+                runCatching {
+                    Json.decodeFromString<List<NetworkExtensionStore.Source>>(webPayload)
+                }.getOrDefault(emptyList())
+            val matched = parsed.find { it.id == sourceId }
+            val isVideo =
+                pkgName.contains(".animeextension.") ||
+                    sourceRecord[SourceTable.name].contains("(Video)", ignoreCase = true)
+            val bridge =
+                WebSourceBridge(
+                    id = sourceId,
+                    name = sourceRecord[SourceTable.name],
+                    lang = sourceRecord[SourceTable.lang],
+                    baseUrl = matched?.homeUrl.orEmpty(),
+                    isVideo = isVideo,
+                )
+            sourceCache[sourceId] = bridge
+            return bridge
+        }
+
         val apkName =
             extensionRecord[ExtensionTable.apkName]
                 ?: throw NullPointerException("Missing apkName")
-        val className = extensionRecord[ExtensionTable.classFQName]
         val jarName = apkName.substringBefore(".apk") + ".jar"
         val jarPath = Path(applicationDirs.extensionsRoot) / jarName
 

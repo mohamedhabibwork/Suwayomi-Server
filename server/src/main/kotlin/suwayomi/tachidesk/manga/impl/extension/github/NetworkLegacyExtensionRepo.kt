@@ -13,15 +13,15 @@ import suwayomi.tachidesk.manga.model.dataclass.ExtensionStore
 
 @Serializable
 data class NetworkLegacyExtensionRepo(
-    @SerialName("index_v2") val indexV2: String?,
+    @SerialName("index_v2") val indexV2: String? = null,
     val meta: Meta,
 ) : BaseNetworkExtensionStore {
     @Serializable
     data class Meta(
         val name: String,
-        val shortName: String?,
-        val website: String,
-        val signingKeyFingerprint: String,
+        val shortName: String? = null,
+        val website: String = "",
+        val signingKeyFingerprint: String = "",
     )
 
     override fun toExtensionStore(indexUrl: String): ExtensionStore =

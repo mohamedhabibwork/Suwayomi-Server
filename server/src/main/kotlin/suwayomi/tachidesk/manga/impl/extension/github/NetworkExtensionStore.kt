@@ -9,6 +9,8 @@ package suwayomi.tachidesk.manga.impl.extension.github
 
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNames
 import kotlinx.serialization.protobuf.ProtoNumber
 import suwayomi.tachidesk.manga.model.dataclass.ContentWarning
@@ -42,11 +44,12 @@ data class NetworkExtensionStore(
         @ProtoNumber(1) val name: String,
         @ProtoNumber(2) val packageName: String,
         @ProtoNumber(3) val resources: Resources,
-        @ProtoNumber(4) val extensionLib: String,
-        @ProtoNumber(5) val versionCode: Long,
-        @ProtoNumber(6) val versionName: String,
-        @ProtoNumber(7) val contentWarning: ContentWarning,
-        @ProtoNumber(8) val sources: List<Source>,
+        @ProtoNumber(4) val extensionLib: String = "1.4",
+        @ProtoNumber(5) val versionCode: Long = 1,
+        @ProtoNumber(6) val versionName: String = "1.0",
+        @ProtoNumber(7) val contentWarning: ContentWarning = ContentWarning.SAFE,
+        @ProtoNumber(8) val sources: List<Source> = emptyList(),
+        @ProtoNumber(9) val animeSources: List<Source> = emptyList(),
     )
 
     @Serializable
@@ -105,13 +108,27 @@ data class NetworkExtensionStore(
 
 fun NetworkExtensionStore.ExtensionList.toExtensionInfos(store: ExtensionStore): List<ExtensionInfo> =
     extensions.map { extension ->
-        val lang = extension.sources.map { it.language }.toSet()
+        val rawSources = extension.sources.ifEmpty { extension.animeSources }
+        val isAnime = extension.packageName.contains(".animeextension.") || extension.animeSources.isNotEmpty()
+        val lang = rawSources.map { it.language }.toSet()
+        val effectiveJarUrl =
+            if (isAnime && extension.resources.jarUrl == null) {
+                "web-sources:" + Json.encodeToString(rawSources.take(4))
+            } else {
+                extension.resources.jarUrl
+            }
+        val displayName =
+            if (isAnime && !extension.name.contains("(Video)", ignoreCase = true)) {
+                "${extension.name} (Video)"
+            } else {
+                extension.name
+            }
         ExtensionInfo(
             storeIndexUrl = store.indexUrl,
-            name = extension.name,
+            name = displayName,
             pkgName = extension.packageName,
             apkUrl = extension.resources.apkUrl,
-            jarUrl = extension.resources.jarUrl,
+            jarUrl = effectiveJarUrl,
             iconUrl = extension.resources.iconUrl,
             extensionLib = extension.extensionLib,
             versionCode = extension.versionCode,
@@ -128,10 +145,10 @@ fun NetworkExtensionStore.ExtensionList.toExtensionInfos(store: ExtensionStore):
                     NetworkExtensionStore.ContentWarning.NSFW -> ContentWarning.NSFW
                 },
             sources =
-                extension.sources.map { source ->
+                rawSources.map { source ->
                     ExtensionSource(
                         id = source.id,
-                        name = source.name,
+                        name = if (isAnime && !source.name.contains("(Video)", ignoreCase = true)) "${source.name} (Video)" else source.name,
                         lang = source.language,
                         homeUrl = source.homeUrl,
                         message = source.message,

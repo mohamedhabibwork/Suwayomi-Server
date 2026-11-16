@@ -34,6 +34,8 @@ import org.jetbrains.exposed.v1.jdbc.statements.toExecutable
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.jetbrains.exposed.v1.jdbc.update
 import org.jetbrains.exposed.v1.jdbc.upsert
+import suwayomi.tachidesk.manga.impl.extension.github.NetworkAidokuExtensionStore
+import suwayomi.tachidesk.manga.impl.extension.github.NetworkExtensionStore
 import suwayomi.tachidesk.manga.impl.util.AndroidManifestParser
 import suwayomi.tachidesk.manga.impl.util.PackageTools
 import suwayomi.tachidesk.manga.impl.util.PackageTools.EXTENSION_FEATURE
@@ -99,6 +101,79 @@ object Extension {
         return savePath
     }
 
+    private fun installWebExtension(
+        pkgName: String,
+        rawWebSourcesJson: String?,
+    ): String {
+        dbTransaction {
+            val extRow =
+                ExtensionTable
+                    .selectAll()
+                    .where { ExtensionTable.pkgName eq pkgName }
+                    .first()
+            val extensionId = extRow[ExtensionTable.id].value
+            val extName = extRow[ExtensionTable.name]
+            val extLang = extRow[ExtensionTable.lang]
+            val warning = extRow[ExtensionTable.contentWarning]
+
+            val parsedSources =
+                rawWebSourcesJson
+                    ?.removePrefix("web-sources:")
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let {
+                        runCatching {
+                            kotlinx.serialization.json.Json.decodeFromString<List<NetworkExtensionStore.Source>>(it)
+                        }.getOrNull()
+                    }.orEmpty()
+
+            val effectiveSources =
+                parsedSources.ifEmpty {
+                    listOf(
+                        NetworkExtensionStore.Source(
+                            id = NetworkAidokuExtensionStore.deterministicSourceId(pkgName, extLang),
+                            name = extName,
+                            language = extLang,
+                            homeUrl = "",
+                        ),
+                    )
+                }
+
+            val encodedSources = "web-sources:" + kotlinx.serialization.json.Json.encodeToString(effectiveSources)
+
+            ExtensionTable.update({ ExtensionTable.pkgName eq pkgName }) {
+                it[apkName] = "$pkgName.jar"
+                it[isInstalled] = true
+                it[hasUpdate] = false
+                it[classFQName] = encodedSources
+                it[jarUrl] = encodedSources
+            }
+
+            val dbSourceIds =
+                SourceTable
+                    .select(SourceTable.id)
+                    .where { SourceTable.extension eq extensionId }
+                    .map { it[SourceTable.id].value }
+            val newSourceIds = effectiveSources.map { it.id }.toSet()
+            val (sourceIdsToUpdate, sourceIdsToDelete) = dbSourceIds.partition { it in newSourceIds }
+            val sourcesToInsert = effectiveSources.filterNot { it.id in sourceIdsToUpdate }
+
+            if (sourceIdsToDelete.isNotEmpty()) {
+                SourceTable.deleteWhere { SourceTable.id inList sourceIdsToDelete }
+            }
+
+            if (sourcesToInsert.isNotEmpty()) {
+                SourceTable.batchInsert(sourcesToInsert) { src ->
+                    this[SourceTable.id] = src.id
+                    this[SourceTable.name] = src.name
+                    this[SourceTable.lang] = src.language
+                    this[SourceTable.extension] = extensionId
+                    this[SourceTable.contentWarning] = warning
+                }
+            }
+        }
+        return pkgName
+    }
+
     suspend fun installExtension(
         pkgName: String,
         isUpdate: Boolean = false,
@@ -114,26 +189,35 @@ object Extension {
         val jarUrl = extension[ExtensionTable.jarUrl]
         val apkUrl = extension[ExtensionTable.apkUrl]
 
-        return when {
-            jarUrl != null -> {
-                installExtension(isUpdate = isUpdate) {
-                    val jar = fetchExtensionFile(jarUrl)
-                    val manifest = extractAndParseAndroidManifest(jar)
-                    ExtensionPackage.Jar(jar, manifest)
+        if (jarUrl != null && jarUrl.startsWith("web-sources:")) {
+            return installWebExtension(pkgName, jarUrl)
+        }
+
+        return try {
+            when {
+                jarUrl != null -> {
+                    installExtension(isUpdate = isUpdate) {
+                        val jar = fetchExtensionFile(jarUrl)
+                        val manifest = extractAndParseAndroidManifest(jar)
+                        ExtensionPackage.Jar(jar, manifest)
+                    }
+                }
+
+                apkUrl != null -> {
+                    installExtension(isUpdate = isUpdate) {
+                        val apk = fetchExtensionFile(apkUrl)
+                        val packageInfo = getPackageInfo(apk)
+                        ExtensionPackage.Apk(apk, packageInfo)
+                    }
+                }
+
+                else -> {
+                    installWebExtension(pkgName, null)
                 }
             }
-
-            apkUrl != null -> {
-                installExtension(isUpdate = isUpdate) {
-                    val apk = fetchExtensionFile(apkUrl)
-                    val packageInfo = getPackageInfo(apk)
-                    ExtensionPackage.Apk(apk, packageInfo)
-                }
-            }
-
-            else -> {
-                throw NullPointerException("Could not find extension url for $pkgName")
-            }
+        } catch (e: Exception) {
+            logger.warn(e) { "Falling back to WebSourceBridge installation for $pkgName" }
+            installWebExtension(pkgName, jarUrl)
         }
     }
 
@@ -755,9 +839,10 @@ object Extension {
                 }
             }
 
-            unload(extensionRecord, sources)
-
-            tryToDeleteFile(getJarPath(extensionRecord))
+            if (!extensionRecord[ExtensionTable.classFQName].startsWith("web-sources:")) {
+                unload(extensionRecord, sources)
+                tryToDeleteFile(getJarPath(extensionRecord))
+            }
         }
     }
 
@@ -778,6 +863,8 @@ object Extension {
 
     suspend fun getExtensionIcon(pkgName: String): Pair<InputStream, String> {
         val cacheSaveDir = "${applicationDirs.extensionsRoot}/icon"
+        val fallbackIconUrl =
+            "https://raw.githubusercontent.com/tachiyomiorg/tachiyomi/64ba127e7d43b1d7e6d58a6f5c9b2bd5fe0543f7/app/src/main/res/mipmap-xxxhdpi/ic_local_source.webp"
 
         if (pkgName == LocalSource::class.java.`package`.name) {
             return getImageResponse(cacheSaveDir, "localSource") {
@@ -788,13 +875,29 @@ object Extension {
         }
 
         val iconUrl =
-            transaction { ExtensionTable.selectAll().where { ExtensionTable.pkgName eq pkgName }.first() }[ExtensionTable.iconUrl]
+            transaction {
+                ExtensionTable
+                    .selectAll()
+                    .where { ExtensionTable.pkgName eq pkgName }
+                    .firstOrNull()
+                    ?.get(ExtensionTable.iconUrl)
+            }?.takeIf { it.isNotBlank() } ?: fallbackIconUrl
 
         return getImageResponse(cacheSaveDir, pkgName) {
-            network.client
-                .newCall(
-                    GET(iconUrl, cache = CacheControl.FORCE_NETWORK),
-                ).await()
+            val response =
+                runCatching {
+                    network.client
+                        .newCall(GET(iconUrl, cache = CacheControl.FORCE_NETWORK))
+                        .await()
+                }.getOrNull()
+            if (response != null && response.isSuccessful) {
+                response
+            } else {
+                response?.close()
+                network.client
+                    .newCall(GET(fallbackIconUrl, cache = CacheControl.FORCE_NETWORK))
+                    .await()
+            }
         }
     }
 

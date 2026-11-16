@@ -25,9 +25,12 @@ import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.jetbrains.exposed.v1.jdbc.update
+import suwayomi.tachidesk.manga.impl.extension.github.BaseNetworkExtensionStore
+import suwayomi.tachidesk.manga.impl.extension.github.NetworkAidokuExtensionStore
 import suwayomi.tachidesk.manga.impl.extension.github.NetworkExtensionStore
 import suwayomi.tachidesk.manga.impl.extension.github.NetworkLegacyExtension
 import suwayomi.tachidesk.manga.impl.extension.github.NetworkLegacyExtensionRepo
+import suwayomi.tachidesk.manga.impl.extension.github.NetworkMangayomiExtension
 import suwayomi.tachidesk.manga.impl.extension.github.toExtensionInfo
 import suwayomi.tachidesk.manga.impl.extension.github.toExtensionInfos
 import suwayomi.tachidesk.manga.model.dataclass.ExtensionInfo
@@ -40,6 +43,21 @@ import kotlin.coroutines.cancellation.CancellationException
 object ExtensionStoreService {
     private val logger = KotlinLogging.logger {}
 
+    val defaultStoreUrls =
+        listOf(
+            "https://github.com/keiyoushi/extensions/raw/repo/index.pb",
+            "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.pb",
+            "https://x.ujol.workers.dev/yuzono/anime/index.pb",
+            "https://raw.githubusercontent.com/MO350AZ/extensions-no-nsfw/repo/repo.json",
+            "https://raw.githubusercontent.com/FelipeGFA/extensoes/refs/heads/repo/index.pb",
+            "https://raw.githubusercontent.com/dddinmx/MangaDock-extensions/main/index.min.json",
+            "https://aidoku-community.github.io/sources/index.min.json",
+            "https://raw.githubusercontent.com/dddinmx/MangaDock-extensions/main/aidoku/index.min.json",
+            "https://raw.githubusercontent.com/Livid96/Aniyomi-Adult-Extensions/main/index.min.json",
+            "https://raw.githubusercontent.com/m2k3a/mangayomi-extensions/refs/heads/main/index.json",
+            "https://raw.githubusercontent.com/m2k3a/mangayomi-extensions/refs/heads/main/anime_index.json",
+        )
+
     val network: NetworkHelper by injectLazy()
     val protoBuf: ProtoBuf by injectLazy()
     val json: Json by injectLazy()
@@ -49,27 +67,80 @@ object ExtensionStoreService {
         return try {
             val response = network.client.newCall(GET(updatedIndexUrl)).awaitSuccess()
             response.body.source().decompressIfGzipped().use { source ->
-                val networkStore =
+                val networkStore: BaseNetworkExtensionStore =
                     when (source.peek().readByte()) {
                         // "[..."
                         0x5B.toByte() -> {
-                            run {
-                                if (!indexUrl.endsWith("/index.min.json")) {
-                                    throw IllegalArgumentException("Provided legacy store url is not valid")
+                            if (indexUrl.endsWith("/index.min.json")) {
+                                val candidateRepoUrl = indexUrl.replace("/index.min.json", "/repo.json")
+                                try {
+                                    val repo =
+                                        network.client.newCall(GET(candidateRepoUrl)).awaitSuccess().body.source().use {
+                                            json.decodeFromBufferedSource<NetworkLegacyExtensionRepo>(it)
+                                        }
+                                    updatedIndexUrl = candidateRepoUrl
+                                    repo
+                                } catch (_: Exception) {
+                                    val fallbackName =
+                                        indexUrl
+                                            .removeSuffix("/index.min.json")
+                                            .substringAfterLast('/')
+                                            .ifBlank { "Legacy Extension Store" }
+                                    NetworkLegacyExtensionRepo(
+                                        indexV2 = null,
+                                        meta =
+                                            NetworkLegacyExtensionRepo.Meta(
+                                                name = fallbackName,
+                                                shortName = fallbackName.take(6).uppercase(),
+                                                website = indexUrl.substringBeforeLast('/'),
+                                                signingKeyFingerprint = "legacy:${indexUrl.hashCode()}",
+                                            ),
+                                    )
                                 }
-                                updatedIndexUrl = indexUrl.replace("/index.min.json", "/repo.json")
-                                network.client.newCall(GET(updatedIndexUrl)).awaitSuccess().body.source().use {
-                                    json.decodeFromBufferedSource<NetworkLegacyExtensionRepo>(it)
+                            } else {
+                                val isAnimeStore = indexUrl.contains("anime", ignoreCase = true)
+                                val storeName =
+                                    when {
+                                        indexUrl.contains("mangayomi", ignoreCase = true) && isAnimeStore -> "Mangayomi Anime & Video Store"
+                                        indexUrl.contains("mangayomi", ignoreCase = true) -> "Mangayomi Extensions Store"
+                                        else -> indexUrl.substringBeforeLast('/').substringAfterLast('/').ifBlank { "JSON Extension Store" }
+                                    }
+                                val badge =
+                                    when {
+                                        indexUrl.contains("mangayomi", ignoreCase = true) && isAnimeStore -> "MYANI"
+                                        indexUrl.contains("mangayomi", ignoreCase = true) -> "MYOMI"
+                                        else -> storeName.take(6).uppercase()
+                                    }
+                                object : BaseNetworkExtensionStore {
+                                    override fun toExtensionStore(indexUrl: String): ExtensionStore =
+                                        ExtensionStore(
+                                            indexUrl = indexUrl,
+                                            name = storeName,
+                                            badgeLabel = badge,
+                                            signingKey = "json-store:${indexUrl.hashCode()}",
+                                            contact =
+                                                ExtensionStore.Contact(
+                                                    website = indexUrl.substringBeforeLast('/'),
+                                                    discord = null,
+                                                ),
+                                            isLegacy = false,
+                                            extensionListUrl = null,
+                                        )
                                 }
                             }
                         }
 
                         // "{..."
                         0x7B.toByte() -> {
+                            val rawJson = source.readUtf8()
                             try {
-                                json.decodeFromBufferedSource<NetworkLegacyExtensionRepo>(source.peek())
-                            } catch (_: IllegalArgumentException) {
-                                json.decodeFromBufferedSource<NetworkExtensionStore>(source)
+                                json.decodeFromString<NetworkLegacyExtensionRepo>(rawJson)
+                            } catch (_: Exception) {
+                                try {
+                                    json.decodeFromString<NetworkExtensionStore>(rawJson)
+                                } catch (_: Exception) {
+                                    json.decodeFromString<NetworkAidokuExtensionStore>(rawJson)
+                                }
                             }
                         }
 
@@ -176,7 +247,11 @@ object ExtensionStoreService {
     }
 
     suspend fun syncPrefsToDb() {
-        val prefUrls = serverConfig.extensionStores.value.toSet()
+        val mergedDefaults = (serverConfig.extensionStores.value + defaultStoreUrls).distinct()
+        if (mergedDefaults != serverConfig.extensionStores.value) {
+            serverConfig.extensionStores.value = mergedDefaults
+        }
+        val prefUrls = mergedDefaults.toSet()
 
         val dbStores =
             transaction {
@@ -235,16 +310,55 @@ object ExtensionStoreService {
                 val response = network.client.newCall(GET(store.indexUrl)).awaitSuccess()
                 response.body.source().decompressIfGzipped().use { source ->
                     when (source.peek().readByte()) {
-                        // "{..."
-                        0x7B.toByte() -> json.decodeFromBufferedSource<NetworkExtensionStore>(source)
+                        // "[..."
+                        0x5B.toByte() -> {
+                            val rawJson = source.readUtf8()
+                            try {
+                                json
+                                    .decodeFromString<List<NetworkMangayomiExtension>>(rawJson)
+                                    .map { it.toExtensionInfo(store) }
+                            } catch (_: Exception) {
+                                val storeBaseUrl = store.indexUrl.substringBeforeLast('/')
+                                json
+                                    .decodeFromString<List<NetworkLegacyExtension>>(rawJson)
+                                    .map { it.toExtensionInfo(store, storeBaseUrl) }
+                            }
+                        }
 
-                        else -> protoBuf.decodeFromByteArray<NetworkExtensionStore>(source.readByteArray())
-                    }.extensionList!!
-                        .toExtensionInfos(store)
+                        // "{..."
+                        0x7B.toByte() -> {
+                            val rawJson = source.readUtf8()
+                            try {
+                                json
+                                    .decodeFromString<NetworkExtensionStore>(rawJson)
+                                    .extensionList!!
+                                    .toExtensionInfos(store)
+                            } catch (_: Exception) {
+                                json
+                                    .decodeFromString<NetworkAidokuExtensionStore>(rawJson)
+                                    .toExtensionInfos(store)
+                            }
+                        }
+
+                        else ->
+                            protoBuf
+                                .decodeFromByteArray<NetworkExtensionStore>(source.readByteArray())
+                                .extensionList!!
+                                .toExtensionInfos(store)
+                    }
                 }
             } else {
-                val storeBaseUrl = store.indexUrl.removeSuffix("/repo.json")
-                val response = network.client.newCall(GET("$storeBaseUrl/index.min.json")).awaitSuccess()
+                val storeBaseUrl =
+                    store.indexUrl
+                        .removeSuffix("/repo.json")
+                        .removeSuffix("/index.min.json")
+                val listUrl =
+                    if (store.indexUrl.endsWith("/index.min.json")) {
+                        store.indexUrl
+                    } else {
+                        "$storeBaseUrl/index.min.json"
+                    }
+                val response = network.client.newCall(GET(listUrl)).awaitSuccess()
                 response.body.source().use { source ->
                     json
                         .decodeFromBufferedSource<List<NetworkLegacyExtension>>(source)
