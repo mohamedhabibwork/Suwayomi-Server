@@ -229,11 +229,79 @@ object WebInterfaceManager {
         File(tempWebUIRoot).mkdirs()
 
         File(originalWebUIRoot).copyRecursively(File(tempWebUIRoot), overwrite = true)
+        rebrandWebUI(File(tempWebUIRoot))
 
         logger.debug { "Created servable WebUI directory at: $tempWebUIRoot" }
 
         // Return canonical path to avoid Jetty alias issues
         return File(tempWebUIRoot).canonicalPath
+    }
+
+    private fun rebrandWebUI(serveDir: File) {
+        try {
+            val iconBytes =
+                WebInterfaceManager::class.java.getResourceAsStream("/icon/faviconlogo-128.png")?.readBytes()
+                    ?: return
+            val b64 = java.util.Base64.getEncoder().encodeToString(iconBytes)
+            val dataUri = "data:image/png;base64,$b64"
+
+            val svgFile = File(serveDir, "favicon.svg")
+            svgFile.writeText(
+                """
+                <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="100" height="100" viewBox="0 0 100 100">
+                  <defs><clipPath id="mgk"><rect width="100" height="100" rx="22"/></clipPath></defs>
+                  <image href="$dataUri" width="100" height="100" clip-path="url(#mgk)"/>
+                </svg>
+                """.trimIndent(),
+            )
+
+            val manifestFile = File(serveDir, "site.webmanifest")
+            if (manifestFile.exists()) {
+                manifestFile.writeText(manifestFile.readText().replace("\"Suwayomi\"", "\"Mangaka FC\""))
+            }
+
+            val indexFile = File(serveDir, "index.html")
+            if (indexFile.exists()) {
+                val script =
+                    """
+                    <script>
+                    (function() {
+                      const LOGO_URI = "$dataUri";
+                      function applyBranding() {
+                        if (document.title.includes("Suwayomi")) {
+                          document.title = document.title.replace(/Suwayomi/g, "Mangaka FC");
+                        }
+                        document.querySelectorAll('svg path[d^="m26.46 38.07"]').forEach((p) => {
+                          const outerSvg = p.closest('svg')?.parentElement?.closest('svg') || p.closest('svg');
+                          if (outerSvg && !outerSvg.dataset.mangaka) {
+                            outerSvg.dataset.mangaka = "1";
+                            outerSvg.setAttribute("viewBox", "0 0 100 100");
+                            outerSvg.innerHTML = '<defs><clipPath id="mgk-clip"><rect width="100" height="100" rx="22"/></clipPath></defs><image href="' + LOGO_URI + '" width="100" height="100" clip-path="url(#mgk-clip)"/>';
+                          }
+                        });
+                      }
+                      const obs = new MutationObserver(applyBranding);
+                      window.addEventListener("DOMContentLoaded", () => {
+                        applyBranding();
+                        obs.observe(document.documentElement, { childList: true, subtree: true });
+                      });
+                    })();
+                    </script></head>
+                    """.trimIndent()
+                val updatedHtml =
+                    indexFile
+                        .readText()
+                        .replace("<title>Suwayomi</title>", "<title>Mangaka FC</title>")
+                        .replace("content=\"Suwayomi\"", "content=\"Mangaka FC\"")
+                        .replace("href=\"./favicon-96x96.png\"", "href=\"./favicon.svg\"")
+                        .replace("href=\"./favicon.ico\"", "href=\"./favicon.svg\"")
+                        .replace("href=\"./apple-touch-icon.png\"", "href=\"./favicon.svg\"")
+                        .replace("</head>", script)
+                indexFile.writeText(updatedHtml)
+            }
+        } catch (e: Exception) {
+            logger.warn(e) { "Failed to apply Mangaka FC WebUI branding" }
+        }
     }
 
     private fun updateServedWebUIInfo(flavor: WebUIFlavor) {
