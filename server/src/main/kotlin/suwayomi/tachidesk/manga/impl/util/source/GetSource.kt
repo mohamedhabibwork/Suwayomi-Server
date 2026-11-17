@@ -64,16 +64,24 @@ object GetSource {
                     Json.decodeFromString<List<NetworkExtensionStore.Source>>(webPayload)
                 }.getOrDefault(emptyList())
             val matched = parsed.find { it.id == sourceId }
+            val sourceName = sourceRecord[SourceTable.name]
+            val isNovel =
+                pkgName.contains(".novelextension.") ||
+                    sourceName.contains("(Novel)", ignoreCase = true)
             val isVideo =
-                pkgName.contains(".animeextension.") ||
-                    sourceRecord[SourceTable.name].contains("(Video)", ignoreCase = true)
+                !isNovel &&
+                    (
+                        pkgName.contains(".animeextension.") ||
+                            sourceName.contains("(Video)", ignoreCase = true)
+                    )
             val bridge =
                 WebSourceBridge(
                     id = sourceId,
-                    name = sourceRecord[SourceTable.name],
+                    name = sourceName,
                     lang = sourceRecord[SourceTable.lang],
                     baseUrl = matched?.homeUrl.orEmpty(),
                     isVideo = isVideo,
+                    isNovel = isNovel,
                 )
             sourceCache[sourceId] = bridge
             return bridge

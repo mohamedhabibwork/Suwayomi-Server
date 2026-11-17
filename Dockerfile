@@ -33,7 +33,7 @@ RUN chmod +x /home/suwayomi/create_server_conf.sh /home/suwayomi/startup_script.
 
 ENV HOME=/home/suwayomi \
     MALLOC_ARENA_MAX=2 \
-    JDK_JAVA_OPTIONS="-XX:TrimNativeHeapInterval=60000 -XX:G1PeriodicGCInterval=300000 -XX:MaxHeapFreeRatio=30 -XX:MinHeapFreeRatio=10"
+    JDK_JAVA_OPTIONS="-Djava.net.preferIPv4Stack=true -Djava.net.preferIPv6Addresses=false -Djava.awt.headless=true -XX:TrimNativeHeapInterval=60000 -XX:G1PeriodicGCInterval=300000 -XX:MaxHeapFreeRatio=30 -XX:MinHeapFreeRatio=10"
 
 WORKDIR /home/suwayomi
 USER suwayomi

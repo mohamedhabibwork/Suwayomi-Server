@@ -1128,6 +1128,8 @@ class ServerConfig(
                 "https://raw.githubusercontent.com/Livid96/Aniyomi-Adult-Extensions/main/index.min.json",
                 "https://raw.githubusercontent.com/m2k3a/mangayomi-extensions/refs/heads/main/index.json",
                 "https://raw.githubusercontent.com/m2k3a/mangayomi-extensions/refs/heads/main/anime_index.json",
+                "https://raw.githubusercontent.com/m2k3a/mangayomi-extensions/refs/heads/main/novel_index.json",
+                "https://raw.githubusercontent.com/LNReader/lnreader-plugins/plugins/v3.0.0/.dist/plugins.min.json",
             ),
         requiresRestart = true,
         itemValidator = { url ->

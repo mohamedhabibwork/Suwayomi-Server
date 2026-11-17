@@ -31,23 +31,29 @@ data class NetworkMangayomiExtension(
     val itemType: Int = 0,
 ) {
     fun toExtensionInfo(store: ExtensionStore): ExtensionInfo {
-        val isVideo = !isManga || itemType == 1
+        val isNovel = itemType == 2 || store.indexUrl.contains("novel", ignoreCase = true)
+        val isVideo = !isNovel && (!isManga || itemType == 1 || store.indexUrl.contains("anime", ignoreCase = true))
         val cleanSlug =
             name
                 .lowercase()
                 .replace(Regex("[^a-z0-9]+"), "")
                 .ifBlank { id.toString() }
-        val pkgPrefix = if (isVideo) "mangayomi.animeextension" else "mangayomi.extension"
-        val pkgName = "$pkgPrefix.${lang.lowercase()}.$cleanSlug.$id"
+        val pkgPrefix =
+            when {
+                isNovel -> "mangayomi.novelextension"
+                isVideo -> "mangayomi.animeextension"
+                else -> "mangayomi.extension"
+            }
+        val pkgName = "$pkgPrefix.${lang.lowercase()}.$cleanSlug.$id".take(120)
         val resolvedBaseUrl =
             baseUrl
                 .ifBlank { apiUrl }
                 .ifBlank { "https://github.com/m2k3a/mangayomi-extensions" }
         val displayName =
-            if (isVideo && !name.contains("(Video)", ignoreCase = true)) {
-                "$name (Video)"
-            } else {
-                name
+            when {
+                isNovel && !name.contains("(Novel)", ignoreCase = true) -> "$name (Novel)"
+                isVideo && !name.contains("(Video)", ignoreCase = true) -> "$name (Video)"
+                else -> name
             }
         val versionCode =
             version
@@ -70,7 +76,7 @@ data class NetworkMangayomiExtension(
 
         return ExtensionInfo(
             storeIndexUrl = store.indexUrl,
-            name = displayName,
+            name = displayName.take(120),
             pkgName = pkgName,
             apkUrl = sourceCodeUrl.ifBlank { resolvedBaseUrl },
             jarUrl = webSourcesPayload,
@@ -80,15 +86,15 @@ data class NetworkMangayomiExtension(
                 },
             extensionLib = "1.4",
             versionCode = versionCode,
-            versionName = version,
-            lang = lang.ifBlank { "all" },
+            versionName = version.take(16),
+            lang = lang.ifBlank { "all" }.take(32),
             contentWarning = warning,
             sources =
                 listOf(
                     ExtensionSource(
                         id = id,
-                        name = displayName,
-                        lang = lang.ifBlank { "all" },
+                        name = displayName.take(120),
+                        lang = lang.ifBlank { "all" }.take(32),
                         homeUrl = resolvedBaseUrl,
                         message = null,
                         contentWarning = warning,

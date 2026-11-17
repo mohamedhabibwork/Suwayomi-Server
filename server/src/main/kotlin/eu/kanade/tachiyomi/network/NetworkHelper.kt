@@ -9,6 +9,7 @@ package eu.kanade.tachiyomi.network
 
 import android.content.Context
 import eu.kanade.tachiyomi.network.interceptor.CloudflareInterceptor
+import eu.kanade.tachiyomi.network.interceptor.SyntheticMediaInterceptor
 import eu.kanade.tachiyomi.network.interceptor.UncaughtExceptionInterceptor
 import eu.kanade.tachiyomi.network.interceptor.UserAgentInterceptor
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -20,12 +21,14 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import okhttp3.Cache
+import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import suwayomi.tachidesk.manga.impl.util.source.GetSource
 import java.net.CookieHandler
 import java.net.CookieManager
 import java.net.CookiePolicy
+import java.net.Inet4Address
 import java.nio.file.Files
 import java.util.concurrent.TimeUnit
 
@@ -71,7 +74,10 @@ class NetworkHelper(
             val builder =
                 OkHttpClient
                     .Builder()
-                    .cookieJar(PersistentCookieJar(cookieStore))
+                    .dns { hostname ->
+                        val all = Dns.SYSTEM.lookup(hostname)
+                        all.filterIsInstance<Inet4Address>().ifEmpty { all }
+                    }.cookieJar(PersistentCookieJar(cookieStore))
                     .connectTimeout(30, TimeUnit.SECONDS)
                     .readTimeout(30, TimeUnit.SECONDS)
                     .callTimeout(2, TimeUnit.MINUTES)
@@ -80,7 +86,8 @@ class NetworkHelper(
                             directory = Files.createTempDirectory("tachidesk_network_cache").toFile(),
                             maxSize = 5L * 1024 * 1024, // 5 MiB
                         ),
-                    ).addInterceptor(UncaughtExceptionInterceptor())
+                    ).addInterceptor(SyntheticMediaInterceptor())
+                    .addInterceptor(UncaughtExceptionInterceptor())
                     .addInterceptor(UserAgentInterceptor(::defaultUserAgentProvider))
 
             // if (preferences.verboseLogging().get()) {

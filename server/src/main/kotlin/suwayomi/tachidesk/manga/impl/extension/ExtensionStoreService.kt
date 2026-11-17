@@ -31,6 +31,7 @@ import suwayomi.tachidesk.manga.impl.extension.github.NetworkAnimeExtensionStore
 import suwayomi.tachidesk.manga.impl.extension.github.NetworkExtensionStore
 import suwayomi.tachidesk.manga.impl.extension.github.NetworkLegacyExtension
 import suwayomi.tachidesk.manga.impl.extension.github.NetworkLegacyExtensionRepo
+import suwayomi.tachidesk.manga.impl.extension.github.NetworkLnReaderExtension
 import suwayomi.tachidesk.manga.impl.extension.github.NetworkMangayomiExtension
 import suwayomi.tachidesk.manga.impl.extension.github.toExtensionInfo
 import suwayomi.tachidesk.manga.impl.extension.github.toExtensionInfos
@@ -57,6 +58,8 @@ object ExtensionStoreService {
             "https://raw.githubusercontent.com/Livid96/Aniyomi-Adult-Extensions/main/index.min.json",
             "https://raw.githubusercontent.com/m2k3a/mangayomi-extensions/refs/heads/main/index.json",
             "https://raw.githubusercontent.com/m2k3a/mangayomi-extensions/refs/heads/main/anime_index.json",
+            "https://raw.githubusercontent.com/m2k3a/mangayomi-extensions/refs/heads/main/novel_index.json",
+            "https://raw.githubusercontent.com/LNReader/lnreader-plugins/plugins/v3.0.0/.dist/plugins.min.json",
         )
 
     val network: NetworkHelper by injectLazy()
@@ -100,14 +103,19 @@ object ExtensionStoreService {
                                 }
                             } else {
                                 val isAnimeStore = indexUrl.contains("anime", ignoreCase = true)
+                                val isNovelStore = indexUrl.contains("novel", ignoreCase = true) || indexUrl.contains("lnreader", ignoreCase = true)
                                 val storeName =
                                     when {
+                                        indexUrl.contains("lnreader", ignoreCase = true) -> "LNReader Novel Plugins Store"
+                                        indexUrl.contains("mangayomi", ignoreCase = true) && isNovelStore -> "Mangayomi Novel & Book Store"
                                         indexUrl.contains("mangayomi", ignoreCase = true) && isAnimeStore -> "Mangayomi Anime & Video Store"
                                         indexUrl.contains("mangayomi", ignoreCase = true) -> "Mangayomi Extensions Store"
                                         else -> indexUrl.substringBeforeLast('/').substringAfterLast('/').ifBlank { "JSON Extension Store" }
                                     }
                                 val badge =
                                     when {
+                                        indexUrl.contains("lnreader", ignoreCase = true) -> "LNREAD"
+                                        indexUrl.contains("mangayomi", ignoreCase = true) && isNovelStore -> "MYNOV"
                                         indexUrl.contains("mangayomi", ignoreCase = true) && isAnimeStore -> "MYANI"
                                         indexUrl.contains("mangayomi", ignoreCase = true) -> "MYOMI"
                                         else -> storeName.take(6).uppercase()
@@ -324,10 +332,16 @@ object ExtensionStoreService {
                                     .decodeFromString<List<NetworkMangayomiExtension>>(rawJson)
                                     .map { it.toExtensionInfo(store) }
                             } catch (_: Exception) {
-                                val storeBaseUrl = store.indexUrl.substringBeforeLast('/')
-                                json
-                                    .decodeFromString<List<NetworkLegacyExtension>>(rawJson)
-                                    .map { it.toExtensionInfo(store, storeBaseUrl) }
+                                try {
+                                    json
+                                        .decodeFromString<List<NetworkLnReaderExtension>>(rawJson)
+                                        .map { it.toExtensionInfo(store) }
+                                } catch (_: Exception) {
+                                    val storeBaseUrl = store.indexUrl.substringBeforeLast('/')
+                                    json
+                                        .decodeFromString<List<NetworkLegacyExtension>>(rawJson)
+                                        .map { it.toExtensionInfo(store, storeBaseUrl) }
+                                }
                             }
                         }
 
