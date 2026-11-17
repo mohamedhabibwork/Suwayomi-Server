@@ -23,6 +23,7 @@ import org.jsoup.Jsoup
 import suwayomi.tachidesk.manga.impl.util.network.await
 import uy.kohesive.injekt.injectLazy
 import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
 
 class WebSourceBridge(
     override val id: Long,
@@ -34,25 +35,33 @@ class WebSourceBridge(
 ) : HttpSource() {
     override val supportsLatest: Boolean = true
     private val json: Json by injectLazy()
+    private val fastClient by lazy {
+        client
+            .newBuilder()
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(6, TimeUnit.SECONDS)
+            .callTimeout(8, TimeUnit.SECONDS)
+            .build()
+    }
 
     override suspend fun getPopularManga(page: Int): MangasPage =
         when {
             isVideo -> {
-                fetchJikanMediaSafe(
-                    url = "https://api.jikan.moe/v4/top/anime?page=$page&sfw=true",
-                    kindTag = "anime",
-                ) ?: fetchKitsuMediaSafe(
+                fetchKitsuMediaSafe(
                     url = "https://kitsu.io/api/edge/anime?page[limit]=20&page[offset]=${(page - 1) * 20}&sort=-userCount",
+                    kindTag = "anime",
+                ) ?: fetchJikanMediaSafe(
+                    url = "https://api.jikan.moe/v4/top/anime?page=$page&sfw=true",
                     kindTag = "anime",
                 ) ?: fallbackVideoCatalog()
             }
 
             isNovel -> {
-                fetchJikanMediaSafe(
-                    url = "https://api.jikan.moe/v4/top/manga?type=lightnovel&page=$page&sfw=true",
+                fetchKitsuMediaSafe(
+                    url = "https://kitsu.io/api/edge/manga?filter[subtype]=novel&page[limit]=20&page[offset]=${(page - 1) * 20}&sort=-userCount",
                     kindTag = "novel",
                 ) ?: fetchJikanMediaSafe(
-                    url = "https://api.jikan.moe/v4/manga?type=novel&order_by=popularity&page=$page&sfw=true",
+                    url = "https://api.jikan.moe/v4/top/manga?type=lightnovel&page=$page&sfw=true",
                     kindTag = "novel",
                 ) ?: fallbackNovelCatalog()
             }
@@ -60,6 +69,7 @@ class WebSourceBridge(
             else -> {
                 scrapeSiteOrFallback(
                     siteUrl = baseUrl,
+                    page = page,
                     fallbackJikanUrl = "https://api.jikan.moe/v4/top/manga?page=$page&sfw=true",
                 )
             }
@@ -68,17 +78,20 @@ class WebSourceBridge(
     override suspend fun getLatestUpdates(page: Int): MangasPage =
         when {
             isVideo -> {
-                fetchJikanMediaSafe(
-                    url = "https://api.jikan.moe/v4/seasons/now?page=$page&sfw=true",
-                    kindTag = "anime",
-                ) ?: fetchKitsuMediaSafe(
+                fetchKitsuMediaSafe(
                     url = "https://kitsu.io/api/edge/anime?page[limit]=20&page[offset]=${(page - 1) * 20}&sort=-updatedAt",
+                    kindTag = "anime",
+                ) ?: fetchJikanMediaSafe(
+                    url = "https://api.jikan.moe/v4/seasons/now?page=$page&sfw=true",
                     kindTag = "anime",
                 ) ?: fallbackVideoCatalog()
             }
 
             isNovel -> {
-                fetchJikanMediaSafe(
+                fetchKitsuMediaSafe(
+                    url = "https://kitsu.io/api/edge/manga?filter[subtype]=novel&page[limit]=20&page[offset]=${(page - 1) * 20}&sort=-updatedAt",
+                    kindTag = "novel",
+                ) ?: fetchJikanMediaSafe(
                     url = "https://api.jikan.moe/v4/manga?type=lightnovel&order_by=start_date&sort=desc&page=$page&sfw=true",
                     kindTag = "novel",
                 ) ?: fallbackNovelCatalog()
@@ -87,6 +100,7 @@ class WebSourceBridge(
             else -> {
                 scrapeSiteOrFallback(
                     siteUrl = baseUrl,
+                    page = page,
                     fallbackJikanUrl = "https://api.jikan.moe/v4/manga?order_by=start_date&sort=desc&page=$page&sfw=true",
                 )
             }
@@ -101,28 +115,31 @@ class WebSourceBridge(
         val encoded = URLEncoder.encode(query.trim(), "UTF-8")
         return when {
             isVideo -> {
-                fetchJikanMediaSafe(
-                    url = "https://api.jikan.moe/v4/anime?q=$encoded&page=$page&sfw=true",
-                    kindTag = "anime",
-                ) ?: fetchKitsuMediaSafe(
+                fetchKitsuMediaSafe(
                     url = "https://kitsu.io/api/edge/anime?filter[text]=$encoded&page[limit]=20",
+                    kindTag = "anime",
+                ) ?: fetchJikanMediaSafe(
+                    url = "https://api.jikan.moe/v4/anime?q=$encoded&page=$page&sfw=true",
                     kindTag = "anime",
                 ) ?: filterFallbackCatalog(fallbackVideoCatalog(), query)
             }
 
             isNovel -> {
-                fetchJikanMediaSafe(
+                fetchKitsuMediaSafe(
+                    url = "https://kitsu.io/api/edge/manga?filter[subtype]=novel&filter[text]=$encoded&page[limit]=20",
+                    kindTag = "novel",
+                ) ?: fetchJikanMediaSafe(
                     url = "https://api.jikan.moe/v4/manga?type=lightnovel&q=$encoded&page=$page&sfw=true",
                     kindTag = "novel",
                 ) ?: filterFallbackCatalog(fallbackNovelCatalog(), query)
             }
 
             else -> {
-                fetchJikanMediaSafe(
-                    url = "https://api.jikan.moe/v4/manga?q=$encoded&page=$page&sfw=true",
-                    kindTag = "manga",
-                ) ?: fetchKitsuMediaSafe(
+                fetchKitsuMediaSafe(
                     url = "https://kitsu.io/api/edge/manga?filter[text]=$encoded&page[limit]=20",
+                    kindTag = "manga",
+                ) ?: fetchJikanMediaSafe(
+                    url = "https://api.jikan.moe/v4/manga?q=$encoded&page=$page&sfw=true",
                     kindTag = "manga",
                 ) ?: filterFallbackCatalog(fallbackNovelCatalog(), query)
             }
@@ -140,11 +157,12 @@ class WebSourceBridge(
 
     private suspend fun scrapeSiteOrFallback(
         siteUrl: String,
+        page: Int,
         fallbackJikanUrl: String,
     ): MangasPage {
         if (siteUrl.startsWith("http")) {
             try {
-                val resp = client.newCall(GET(siteUrl, headers)).await()
+                val resp = fastClient.newCall(GET(siteUrl, headers)).await()
                 if (resp.isSuccessful) {
                     val html = resp.body.string()
                     val doc = Jsoup.parse(html, siteUrl)
@@ -180,12 +198,16 @@ class WebSourceBridge(
                     if (items.size >= 4) {
                         return MangasPage(items, false)
                     }
+                } else {
+                    resp.close()
                 }
             } catch (_: Exception) {
             }
         }
-        return fetchJikanMediaSafe(fallbackJikanUrl, kindTag = "manga")
-            ?: fetchKitsuMediaSafe("https://kitsu.io/api/edge/manga?page[limit]=20&sort=-userCount", kindTag = "manga")
+        return fetchKitsuMediaSafe(
+            "https://kitsu.io/api/edge/manga?page[limit]=20&page[offset]=${(page - 1) * 20}&sort=-userCount",
+            kindTag = "manga",
+        ) ?: fetchJikanMediaSafe(fallbackJikanUrl, kindTag = "manga")
             ?: fallbackNovelCatalog()
     }
 
@@ -194,7 +216,7 @@ class WebSourceBridge(
         kindTag: String,
     ): MangasPage? =
         try {
-            val resp = client.newCall(GET(url)).await()
+            val resp = fastClient.newCall(GET(url)).await()
             if (!resp.isSuccessful) {
                 resp.close()
                 null
@@ -257,7 +279,7 @@ class WebSourceBridge(
         kindTag: String,
     ): MangasPage? =
         try {
-            val resp = client.newCall(GET(url)).await()
+            val resp = fastClient.newCall(GET(url)).await()
             if (!resp.isSuccessful) {
                 resp.close()
                 null
@@ -398,7 +420,7 @@ class WebSourceBridge(
             val malId = idOrSlug.toIntOrNull()
             if (malId != null) {
                 try {
-                    val resp = client.newCall(GET("https://api.jikan.moe/v4/anime/$malId/pictures")).await()
+                    val resp = fastClient.newCall(GET("https://api.jikan.moe/v4/anime/$malId/pictures")).await()
                     if (resp.isSuccessful) {
                         val data = json.parseToJsonElement(resp.body.string()).jsonObject["data"]?.jsonArray.orEmpty()
                         data
@@ -452,7 +474,7 @@ class WebSourceBridge(
         val malId = idOrSlug.toIntOrNull()
         if (malId != null) {
             try {
-                val resp = client.newCall(GET("https://api.jikan.moe/v4/manga/$malId/pictures")).await()
+                val resp = fastClient.newCall(GET("https://api.jikan.moe/v4/manga/$malId/pictures")).await()
                 if (resp.isSuccessful) {
                     val data = json.parseToJsonElement(resp.body.string()).jsonObject["data"]?.jsonArray.orEmpty()
                     val urls =
