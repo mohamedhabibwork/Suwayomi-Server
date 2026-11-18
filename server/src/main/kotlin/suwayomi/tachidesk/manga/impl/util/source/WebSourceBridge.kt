@@ -339,7 +339,7 @@ class WebSourceBridge(
                 thumbnail_url = manga.thumbnail_url
                 description =
                     manga.description
-                        ?: "Available on $name (${baseUrl.ifBlank { "Online Source" }})."
+                        ?: "Available on $name (${effectiveProviderBaseUrl()})."
                 genre =
                     manga.genre ?: when {
                         isVideo -> "Video, Anime"
@@ -375,6 +375,108 @@ class WebSourceBridge(
         return SMangaUpdate(updatedManga, if (fetchChapters) updatedChapters else chapters)
     }
 
+    override fun getHomeUrl(): String = effectiveProviderBaseUrl()
+
+    private fun effectiveProviderBaseUrl(): String {
+        val cleanBase = baseUrl.trim().trimEnd('/')
+        if (cleanBase.startsWith("http") && !cleanBase.contains("github.com/m2k3a")) {
+            return cleanBase
+        }
+        val lower =
+            name
+                .lowercase()
+                .replace("(video)", "")
+                .replace("aniyomi:", "")
+                .trim()
+        return when {
+            lower.contains("hianime") || lower.contains("zoro") -> "https://hianime.to"
+            lower.contains("gogoanime") || lower.contains("anitaku") -> "https://anitaku.bz"
+            lower.contains("animepahe") -> "https://animepahe.ru"
+            lower.contains("miruro") -> "https://www.miruro.tv"
+            lower.contains("allanime") -> "https://allmanga.to"
+            lower.contains("kaido") -> "https://kaido.to"
+            lower.contains("animekai") || lower.contains("anikai") -> "https://animekai.to"
+            lower.contains("aniwave") || lower.contains("9anime") -> "https://9animetv.to"
+            lower.contains("kickassanime") -> "https://kaa.mx"
+            lower.contains("crunchyroll") -> "https://www.crunchyroll.com"
+            lower.contains("bilibili") -> "https://www.bilibili.tv/en"
+            lower.contains("dailymotion") -> "https://www.dailymotion.com"
+            lower.contains("franime") -> "https://franime.fr"
+            lower.contains("otakufr") -> "https://otakufr.cc"
+            lower.contains("animesultra") -> "https://w2.animesultra.net"
+            lower.contains("okanime") -> "https://www.okanime.xyz"
+            lower.contains("witanime") || lower.contains("wit anime") -> "https://witanime.cyou"
+            lower.contains("anime4up") -> "https://anime4up.rest"
+            lower.contains("aniworld") -> "https://aniworld.to"
+            lower.contains("animeflv") -> "https://www3.animeflv.net"
+            lower.contains("jkanime") -> "https://jkanime.net"
+            lower.contains("otakudesu") -> "https://otakudesu.cloud"
+            lower.contains("hanime") -> "https://hanime.tv"
+            isVideo -> "https://hianime.to"
+            isNovel -> "https://www.royalroad.com"
+            else -> "https://mangadex.org"
+        }
+    }
+
+    private fun buildProviderSearchUrl(queryText: String): String {
+        val base = effectiveProviderBaseUrl()
+        val encoded = URLEncoder.encode(queryText.trim(), "UTF-8")
+        if (encoded.isBlank()) return base
+        val lower = base.lowercase()
+        return when {
+            lower.contains("hianime") ||
+                lower.contains("kaido") ||
+                lower.contains("9animetv") -> "$base/search?keyword=$encoded"
+            lower.contains("anitaku") || lower.contains("gogoanime") -> "$base/search.html?keyword=$encoded"
+            lower.contains("miruro") -> "$base/search?query=$encoded"
+            lower.contains("animekai") -> "$base/browser?keyword=$encoded"
+            lower.contains("crunchyroll") -> "$base/search?q=$encoded"
+            lower.contains("bilibili") -> "$base/search-result?q=$encoded"
+            lower.contains("dailymotion") -> "$base/search/$encoded/videos"
+            lower.contains("animeflv") -> "$base/browse?q=$encoded"
+            lower.contains("jkanime") -> "$base/buscar/$encoded/1/"
+            lower.contains("okanime") -> "$base/search/?s=$encoded"
+            lower.contains("witanime") ||
+                lower.contains("anime4up") ||
+                lower.contains("otakudesu") -> "$base/?s=$encoded"
+            lower.contains("royalroad") -> "$base/fictions/search?title=$encoded"
+            else -> "$base/search?keyword=$encoded&q=$encoded&s=$encoded"
+        }
+    }
+
+    override fun getMangaUrl(manga: SManga): String {
+        val rawUrl = manga.url.trim()
+        if (rawUrl.startsWith("http")) return rawUrl
+        val title = manga.title.trim()
+        if (isVideo || rawUrl.startsWith("/anime/") || isNovel || rawUrl.startsWith("/novel/")) {
+            return buildProviderSearchUrl(title)
+        }
+        val base = effectiveProviderBaseUrl()
+        return if (rawUrl.startsWith("/")) "$base$rawUrl" else "$base/$rawUrl"
+    }
+
+    override fun getChapterUrl(chapter: SChapter): String {
+        val rawPath = chapter.url.substringBefore('?')
+        val queryPart = chapter.url.substringAfter('?', "")
+        val titleParam =
+            queryPart
+                .split('&')
+                .find { it.startsWith("title=") }
+                ?.substringAfter("title=")
+                ?.let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrNull() }
+                .orEmpty()
+        val epName = chapter.name.trim()
+        if (isVideo || rawPath.startsWith("/anime/") || isNovel || rawPath.startsWith("/novel/")) {
+            val fullQuery =
+                listOf(titleParam, epName)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" ")
+            return buildProviderSearchUrl(fullQuery)
+        }
+        val base = effectiveProviderBaseUrl()
+        return if (rawPath.startsWith("/")) "$base$rawPath" else "$base/$rawPath"
+    }
+
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val rawPath = chapter.url.substringBefore('?')
         val queryPart = chapter.url.substringAfter('?', "")
@@ -405,10 +507,11 @@ class WebSourceBridge(
             val encodedTitle = URLEncoder.encode(titleParam, "UTF-8")
             val encodedEp = URLEncoder.encode(chapter.name.ifBlank { "Episode $numStr" }, "UTF-8")
             val encodedSource = URLEncoder.encode(name, "UTF-8")
-            val encodedStream = URLEncoder.encode(baseUrl.ifBlank { "https://hianime.to/search?keyword=$encodedTitle" }, "UTF-8")
+            val resolvedStreamUrl = getChapterUrl(chapter)
+            val encodedStream = URLEncoder.encode(resolvedStreamUrl, "UTF-8")
             val encodedSynopsis =
                 URLEncoder.encode(
-                    "Streaming $titleParam (${chapter.name.ifBlank { "Episode $numStr" }}) via $name. Tap 'Watch Video' in the top bar or episode player to watch the full video stream.",
+                    "Streaming $titleParam (${chapter.name.ifBlank { "Episode $numStr" }}) via $name. Tap 'Play Episode' to launch the live video player.",
                     "UTF-8",
                 )
             pages.add(
