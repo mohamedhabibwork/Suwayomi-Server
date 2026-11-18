@@ -197,6 +197,17 @@ object JavalinSetup {
     }
 
     fun RoutesConfig.defineCore() {
+        val aasaJson =
+            """{"webcredentials":{"apps":["47S9UJ6UZP.app.firstcallmedical.manga"]},"applinks":{"apps":[],"details":[{"appID":"47S9UJ6UZP.app.firstcallmedical.manga","paths":["*"]}]}}"""
+        get("/.well-known/apple-app-site-association") { ctx ->
+            ctx.contentType("application/json")
+            ctx.result(aasaJson)
+        }
+        get("/apple-app-site-association") { ctx ->
+            ctx.contentType("application/json")
+            ctx.result(aasaJson)
+        }
+
         val loginPath = ServerSubpath.maybeAddAsPrefix("/login.html")
 
         get(loginPath) { ctx ->
@@ -261,7 +272,7 @@ object JavalinSetup {
 
         beforeMatched { ctx ->
             val isWebManifest =
-                listOf("site.webmanifest", "manifest.json", "login.html").any {
+                listOf("site.webmanifest", "manifest.json", "login.html", "apple-app-site-association").any {
                     ctx.path().endsWith(it)
                 }
             val isPageIcon =
