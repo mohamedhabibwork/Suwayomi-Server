@@ -47,19 +47,28 @@ object ExtensionStoreService {
 
     val defaultStoreUrls =
         listOf(
-            "https://github.com/keiyoushi/extensions/raw/repo/index.pb",
             "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.pb",
             "https://x.ujol.workers.dev/yuzono/anime/index.pb",
-            "https://raw.githubusercontent.com/MO350AZ/extensions-no-nsfw/repo/repo.json",
-            "https://raw.githubusercontent.com/FelipeGFA/extensoes/refs/heads/repo/index.pb",
-            "https://raw.githubusercontent.com/dddinmx/MangaDock-extensions/main/index.min.json",
             "https://aidoku-community.github.io/sources/index.min.json",
-            "https://raw.githubusercontent.com/dddinmx/MangaDock-extensions/main/aidoku/index.min.json",
             "https://raw.githubusercontent.com/Livid96/Aniyomi-Adult-Extensions/main/index.min.json",
             "https://raw.githubusercontent.com/m2k3a/mangayomi-extensions/refs/heads/main/index.json",
             "https://raw.githubusercontent.com/m2k3a/mangayomi-extensions/refs/heads/main/anime_index.json",
             "https://raw.githubusercontent.com/m2k3a/mangayomi-extensions/refs/heads/main/novel_index.json",
             "https://raw.githubusercontent.com/LNReader/lnreader-plugins/plugins/v3.0.0/.dist/plugins.min.json",
+        )
+
+    private val redundantDuplicateUrls =
+        setOf(
+            "https://github.com/keiyoushi/extensions/raw/repo/index.pb",
+            "https://raw.githubusercontent.com/MO350AZ/extensions-no-nsfw/repo/repo.json",
+            "https://raw.githubusercontent.com/MO350AZ/extensions-no-nsfw/repo/index.pb",
+            "https://raw.githubusercontent.com/MO350AZ/extensions-no-nsfw/repo/index.min.json",
+            "https://raw.githubusercontent.com/FelipeGFA/extensoes/refs/heads/repo/index.pb",
+            "https://raw.githubusercontent.com/dddinmx/MangaDock-extensions/main/index.min.json",
+            "https://raw.githubusercontent.com/dddinmx/MangaDock-extensions/main/repo.json",
+            "https://raw.githubusercontent.com/dddinmx/MangaDock-extensions/main/index.pb",
+            "https://raw.githubusercontent.com/dddinmx/MangaDock-extensions/main/aidoku/index.min.json",
+            "https://raw.githubusercontent.com/dddinmx/MangaDock-extensions/main/aidoku/repo.json",
         )
 
     val network: NetworkHelper by injectLazy()
@@ -261,7 +270,8 @@ object ExtensionStoreService {
     }
 
     suspend fun syncPrefsToDb() {
-        val mergedDefaults = (serverConfig.extensionStores.value + defaultStoreUrls).distinct()
+        val cleanedCurrent = serverConfig.extensionStores.value.filterNot { it in redundantDuplicateUrls }
+        val mergedDefaults = (cleanedCurrent + defaultStoreUrls).distinct()
         if (mergedDefaults != serverConfig.extensionStores.value) {
             serverConfig.extensionStores.value = mergedDefaults
         }
